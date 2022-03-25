@@ -1,12 +1,12 @@
 # Use the Acme Air web app to demonstrate the effectiveness of the Eclipse OpenJ9 JITServer
 
-With the current trend of migrating applications to the cloud, a new set of challenges have emerged - namely related to performance and cost. This article ["JITServer - optimize your Java Cloud Native applications"](https://github.com/rhagarty/jitserver-intro) proposes that the OpenJ9 JITServer is a great solution to address both of these issues. The article state that with the use of the JITServer (included with the Eclipse OpenJ9 JVM), it is possible to ensure the high Quality of Service (QoS) that clients demand, while also lowering costs through better use of managed container resources.
+With the current trend of migrating applications to the cloud, a new set of challenges have emerged - namely related to performance and cost. The article ["JITServer - optimize your Java Cloud Native applications"](https://github.com/rhagarty/jitserver-intro) proposes that the OpenJ9 JITServer is a great solution to address both of these issues. The article states that with the use of the [JITServer](https://www.eclipse.org/openj9/docs/jitserver/) (included with the [Eclipse OpenJ9 JVM](https://www.eclipse.org/openj9/)), it is possible to ensure the high Quality of Service (QoS) that clients demand, while also lowering costs through better use of managed container resources.
 
 In this tutorial, we will test that theory.
 
 The test will consist of running multiple versions of the [AcmeAir](https://github.com/acmeair/acmeair) web application, each running in its own container. One version will be using a standard OpenJ9 JVM with a JIT compiler, and the other will be using a remote container based JITServer.
 
-We will be using JMeter to simulate load on the containers, and Prometheus to monitor the container metrics.
+We will be using [JMeter](https://jmeter.apache.org/) to simulate load on the containers, and [Prometheus](https://prometheus.io/docs/introduction/overview/) to monitor the container metrics.
 
 ## Test system
 
