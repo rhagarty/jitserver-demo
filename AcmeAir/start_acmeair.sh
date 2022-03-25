@@ -9,5 +9,10 @@ docker run --rm -d --network=mynet --name mongodb mongo-acmeair --nojournal
 sleep 2
 docker exec -it mongodb mongorestore --drop /AcmeAirDBBackup
 sleep 1
+
 echo "Starting liberty-acmeair"
-docker run -d --rm --network=mynet -m=512m --cpus=4  -p 9092:9090 -e JVM_ARGS="" --name acmeair liberty-acmeair:openj9_11
+docker run --rm -d --network=mynet -m=256m --cpus=".5"  -p 9092:9090 -p 9404:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml" --name acmeair-plain liberty-acmeair:openj9_11
+
+sleep 2
+echo "Starting liberty-acmeair with JITServer"
+docker run --rm -d --network=mynet -m=256m --cpus=".5"  -p 9093:9090 -p 9405:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml -XX:+UseJITServer -XX:+JITServerLogConnections -XX:JITServerAddress=jitserver -Xjit:verbose={JITServer}" --name acmeair-jitserver liberty-acmeair:openj9_11
