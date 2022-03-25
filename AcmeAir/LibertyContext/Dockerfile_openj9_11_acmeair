@@ -11,12 +11,14 @@ ENV PATH="/opt/java/openjdk/bin:${PATH}"
 COPY --chown=1001:0 LibertyFiles/server.xml /config/server.xml
 COPY --chown=1001:0 LibertyFiles/mongo.properties /config/mongo.properties
 COPY --chown=1001:0 LibertyFiles/acmeair-webapp-2.0.0-SNAPSHOT.war /config/apps
+COPY --chown=1001:0 LibertyFiles/jmx_prometheus_javaagent-0.16.1.jar /config/jmx_prometheus_javaagent-0.16.1.jar
+COPY --chown=1001:0 LibertyFiles/jmxexporter.yml /config/jmxexporter.yml
+
 ENV ACMEAIR_PROPERTIES=/config/mongo.properties
 
 EXPOSE 9090
 
 USER 1001:0
-#ENV OPENJ9_SCC=false
 ENV VERBOSE=true
 RUN features.sh
 RUN configure.sh
