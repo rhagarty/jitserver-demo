@@ -10,9 +10,9 @@ The test will consist of running multiple versions of the [AcmeAir](https://gith
 
 We will be using [JMeter](https://jmeter.apache.org/) to simulate load on the containers, and [Prometheus](https://prometheus.io/docs/introduction/overview/) to monitor the container metrics.
 
-## Test system
+## Host system
 
-For our test we will be using a VM with the following specs:
+For our experiment, I provisioned a VM with the following specs:
 
 * Ubuntu 20.04 LTS
 * 4 Core 8GB RAM
@@ -98,7 +98,7 @@ $ systemctl status prometheus.service
 $ systemctl restart prometheus.service
 ```
 
-Once started, you should be able to view the Prometheus web page using the URL `http:<host-ip>/graph`:
+Once started, you should be able to view the Prometheus web on port 9090 page using the URL `http:<host-ip>:9090/graph`:
 
 ![prometheus-blank](doc/source/images/prometheus-blank.png)
 
