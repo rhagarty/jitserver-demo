@@ -33,11 +33,14 @@ For our experiment, I provisioned a VM with the following specs:
 
 ## 1. Install Prometheus
 
-Prometheus downloads are available [here](https://prometheus.io/download/).
+[Prometheus](https://prometheus.io/docs/introduction/overview/) is a popular open-source toolkit used for systems monitoring and alerting. We will use it to monitor CPU loads and memory usage.
 
-Note that you can create a Prometheus image and run it on Docker using these [instructions](https://prometheus.io/docs/prometheus/latest/installation/#using-docker), but I chose to install locally on my system. If you do run in on Docker, may sure you map the Prometheus configuration file to your local host so that you can make changes (which will be required in future steps).
+To install and run, you can either:
 
-Here are the steps I used:
+* Download from [here](https://prometheus.io/download/) and install locally.
+* Download image from Dockerhub and run in a container, using these [instructions](https://prometheus.io/docs/prometheus/latest/installation/#using-docker). Note that if you do run in a container, may sure you map the Prometheus configuration file to your local host for editing.
+
+For this tutorial I chose to install locally. Here are the steps I used:
 
 ```bash
 $ wget https://github.com/prometheus/prometheus/releases/download/v2.34.0/prometheus-2.34.0.linux-amd64.tar.gz
@@ -64,7 +67,7 @@ Description=Monitoring system and time series database
 
 [Service] 
 Restart=always
-User=prometheus
+User=root
 ExecStart=/opt/prometheus/prometheus --config.file=/opt/prometheus/prometheus.yml --storage.tsdb.path=/opt/prometheus/data 
 ExecReload=/bin/kill -HUP $MAINPID 
 TimeoutStopSec=20s 
@@ -207,11 +210,15 @@ $ cd AcmeAir
 $ bash start_jitserver.sh
 ```
 
+The start script contains the `docker run` command:
+
 ```bash
 docker run -d --rm --network=mynet -m=2G --cpus=4  -p 38400:38400 -e _JAVA_OPTIONS="-XX:+JITServerLogConnections -Xjit:verbose={JITServer}" --name jitserver jitserver:11
 ```
 
-If you look at the run command, you can see in the JAVA_OPTIONS that we have added some logging options, and set the name of our container to `jitserver`.
+If you look at the run command, you can see in the JAVA_OPTIONS that we have added some logging options (`verbose` is optional, and usually not needed unless there are suspected issues). We also set the name of our container to `jitserver`.
+
+You will also notice that the JITServer container runs in the `mynet` Docker network. This network will be actually be created in the next script we will be running.
 
 The rest of our containers are started with the following command:
 
@@ -220,7 +227,6 @@ $ bash start_acmeair.sh
 ```
 
 Let's take a closer look at the details of this script file:
-
 
 ```bash
 docker network create mynet
@@ -239,13 +245,13 @@ docker run --rm -d --network=mynet -m=256m --cpus=".5"  -p 9093:9090 -p 9405:940
 
 * All containers will run in the same network - `mynet`. By running on the same Docker network, all containers can address each other by name (eg. `XX:JITServerAddress=jitserver`).
 * The mongodb container (`mongodb`) is started first, and will be accessible by both AcmeAir containers.
-* The first AcmeAir container (`acmeair`) will be started in default mode - using the standard JIT compiler that comes with the OpenJDK. It will run on port `9092`.
+* The first AcmeAir container (`acmeair`) will be started in default mode - using the standard JIT compiler that comes with the OpenJ9 JVM. It will run on port `9092`.
 * The second AcmeAir container (`acmeair-jitserver`) will be configured to access the JITServer container, and will have logging turned on. It will run on port `9093`.
 * Both AcmeAir containers will be run in very constrained containers - each will use a .5 CPU core with 256MB of memory.
 * Both AcmeAir containers will be providing metrics to the Prometheus service via the `JMX exporter` (see [Step #4](#4-install-prometheus-jmx-exporter) for details).
 * `acmeair` will forward metrics using port `9404`, and `acmeair-jitserver` will use port `9405`.
 
->**NOTE**: the container accessing the JITServer uses `JVM_ARGS` to specify the connection. For a full list of JVM args associated with the JITServer, check out the [Eclispe OpenJ9 documentation](https://www.eclipse.org/openj9/docs/xx_jvm_commands/).
+>**NOTE**: the container accessing the JITServer uses `JVM_ARGS` to specify the connection. For a full list of JVM args associated with the JITServer, check out the [Eclipse OpenJ9 documentation](https://www.eclipse.org/openj9/docs/xx_jvm_commands/).
 
 Once the containers are started, you can view them using the `docker ps` command:
 
@@ -306,10 +312,10 @@ scrape_configs:
 Note the following entries:
 
 * Metrics will be collected and evaluated every second.
-* We will be monitoring 2 "targets", which are the 2 AcmeAir containers - one running in a stardard JVM configuration, and the other accessing the JITServer container.
-* The port numbers correspond to the second set of port values we set in the `docker run` commands shown in section XX. The ports (`9404` and `9405`) refer to the port used to export metrics from the container (using the JMX exporter).
+* We will be monitoring 2 "targets", which are the 2 AcmeAir containers - one running in a standard JVM configuration, and the other accessing the JITServer container.
+* The port numbers correspond to the second set of port values we set in the `docker run` commands shown in [Step #6](#6-run-images-in-docker-containers) above. The ports (`9404` and `9405`) refer to the port used to export metrics from the container (using the JMX exporter).
 
-Once you changes are made, restart the Prometheus service:
+After making the changes, restart the Prometheus service:
 
 ```bash
 $ systemctl restart prometheus.service
@@ -327,7 +333,7 @@ On the `Targets` panel, you should see both of the `Acme Air` containers listed.
 
 The last piece of the puzzle is running the JMeter container to simulate load on the AcmeAir containers. It does this by flooding the AcmeAir applications with HTTP requests.
 
-There are 2 scripts in the root repo directory to to start JMeter - `runJMeter.sh` and `runJMeterJITServer`, which are shown below:
+There are 2 scripts in the root repo directory to start JMeter - `runJMeter.sh` and `runJMeterJITServer`, which are shown below:
 
 ```bash
 # runJMeter.sh
