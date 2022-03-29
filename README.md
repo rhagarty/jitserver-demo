@@ -157,13 +157,14 @@ Version `0.16.` is provided in this repo (directory `LibartyContext/LibertyFiles
 In this same directory, you should see a configuration file that the JMX exporter will use. It defines which metrics to export:
 
 ```bash
+$ cd AcmeAir/LibertyContext/LibertyFiles
 $ cat jmxexporter.yml
 ---
 lowercaseOutputName: true
 whitelistObjectNames: ["java.lang.OperatingSystem:*"]
 ```
 
-Here are the references to JMX exporter files in the Dockerfile:
+Here are the references to JMX exporter files in the `/LibertyContext/Dockerfile_openj9_11_acmeair` Dockerfile:
 
 >
 >```bash
@@ -180,7 +181,7 @@ We need to build all of the images needed to run our test. This includes:
 * JMeter (JITServerContext) - Load simulator
 * AcmeAir (LibertyContext) - the Acme Air web application
 
-Each image will be built from its respective Dockerfile. Each Dockerfile has a base image from OpenJDK and OpenJ9 binaries. If you modify any of the provided versions of these binaries, it is important to ensure that the changes are made to all of the Dockerfiles so that they stay compatible with each other.
+Each image will be built from its respective Dockerfile. Each Dockerfile requiring a JVM will use a base image from OpenJDK and OpenJ9 binaries. If you modify any of the provided versions of these binaries, it is important to ensure that the changes are made to all of the Dockerfiles so that they stay compatible with each other.
 
 To build the Docker images, go into each subdirectory and run the build script.
 
