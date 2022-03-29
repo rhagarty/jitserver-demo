@@ -1,12 +1,10 @@
-# WORK IN PROGRESS
-
 # Use the Acme Air web app to demonstrate the effectiveness of the Eclipse OpenJ9 JITServer
 
 With the current trend of migrating applications to the cloud, a new set of challenges have emerged - namely related to performance and cost. The article ["JITServer - optimize your Java Cloud Native applications"](https://github.com/rhagarty/jitserver-intro) proposes that the OpenJ9 JITServer is a great solution to address both of these issues. The article states that with the use of the [JITServer](https://www.eclipse.org/openj9/docs/jitserver/) (included with the [Eclipse OpenJ9 JVM](https://www.eclipse.org/openj9/)), it is possible to ensure the high Quality of Service (QoS) that clients demand, while also lowering costs through better use of managed container resources.
 
 In this tutorial, we will test that theory.
 
-The test will consist of running multiple versions of the [AcmeAir](https://github.com/acmeair/acmeair) web application, each running in its own container. One version will be using a standard OpenJ9 JVM with a JIT compiler, and the other will be using a remote container based JITServer.
+The test will consist of running multiple versions of the [AcmeAir](https://github.com/acmeair/acmeair) web application, each running in its own container. One version will be using a standard OpenJ9 JVM with an internal JIT compiler, and the other will be accessing a remote JITServer, running in a separate container.
 
 We will be using [JMeter](https://jmeter.apache.org/) to simulate load on the containers, and [Prometheus](https://prometheus.io/docs/introduction/overview/) to monitor the container metrics.
 
@@ -26,10 +24,11 @@ For our experiment, I provisioned a VM with the following specs:
 1. [Install Prometheus JMX exporter](#4-install-prometheus-jmx-exporter)
 1. [Build images from Dockerfiles](#5-build-images-from-dockerfiles)
 1. [Run images in Docker containers](#6-run-images-in-docker-containers)
-1. [Verify Acme Air web app is running](#7-verify-acme-air-web-app-is-running)
-1. [Configure Prometheus](#8-configure-prometheus)
-1. [Run JMeter to add load to containers](#9-run-jmeter-to-add-load-to-containers)
-1. [Capture metrics in Prometheus](#10-capture-metrics-in-prometheus)
+1. [Verify JITServer is responding](#7-verify-jitserver-is-responding)
+1. [Verify Acme Air web app is running](#8-verify-acme-air-web-app-is-running)
+1. [Configure Prometheus](#9-configure-prometheus)
+1. [Run JMeter to add load to containers](#10-run-jmeter-to-add-load-to-containers)
+1. [Capture metrics in Prometheus](#11-capture-metrics-in-prometheus)
 
 ## 1. Install Prometheus
 
@@ -236,19 +235,19 @@ docker exec -it mongodb mongorestore --drop /AcmeAirDBBackup
 sleep 1
 
 echo "Starting liberty-acmeair"
-docker run --rm -d --network=mynet -m=256m --cpus=".5"  -p 9092:9090 -p 9404:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml" --name acmeair liberty-acmeair:openj9_11
+docker run --rm -d --network=mynet -m=256m --cpus="1"  -p 9092:9090 -p 9404:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml" --name acmeair liberty-acmeair:openj9_11
 
 sleep 2
 echo "Starting liberty-acmeair with JITServer"
-docker run --rm -d --network=mynet -m=256m --cpus=".5"  -p 9093:9090 -p 9405:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml -XX:+UseJITServer -XX:+JITServerLogConnections -XX:JITServerAddress=jitserver -Xjit:verbose={JITServer}" --name acmeair-jitserver liberty-acmeair:openj9_11
+docker run --rm -d --network=mynet -m=256m --cpus="1"  -p 9093:9090 -p 9405:9404 -e JVM_ARGS="-javaagent:/config/jmx_prometheus_javaagent-0.16.1.jar=9404:/config/jmxexporter.yml -XX:+UseJITServer -XX:+JITServerLogConnections -XX:JITServerAddress=jitserver -Xjit:verbose={JITServer}" --name acmeair-jitserver liberty-acmeair:openj9_11
 ```
 
 * All containers will run in the same network - `mynet`. By running on the same Docker network, all containers can address each other by name (eg. `XX:JITServerAddress=jitserver`).
 * The mongodb container (`mongodb`) is started first, and will be accessible by both AcmeAir containers.
 * The first AcmeAir container (`acmeair`) will be started in default mode - using the standard JIT compiler that comes with the OpenJ9 JVM. It will run on port `9092`.
 * The second AcmeAir container (`acmeair-jitserver`) will be configured to access the JITServer container, and will have logging turned on. It will run on port `9093`.
-* Both AcmeAir containers will be run in very constrained containers - each will use a .5 CPU core with 256MB of memory.
-* Both AcmeAir containers will be providing metrics to the Prometheus service via the `JMX exporter` (see [Step #4](#4-install-prometheus-jmx-exporter) for details).
+* Both AcmeAir containers will be constrained - each will be limited to 1 CPU core and 256MB of memory.
+* Both AcmeAir containers will be providing metrics to the Prometheus service via the `JMX exporter` (see [Step #4](#4-install-prometheus-jmx-exporter) for details). The link is specified in the `JVM_ARGS` using the `javaagent` argument.
 * `acmeair` will forward metrics using port `9404`, and `acmeair-jitserver` will use port `9405`.
 
 >**NOTE**: the container accessing the JITServer uses `JVM_ARGS` to specify the connection. For a full list of JVM args associated with the JITServer, check out the [Eclipse OpenJ9 documentation](https://www.eclipse.org/openj9/docs/xx_jvm_commands/).
@@ -264,20 +263,46 @@ CONTAINER ID   PORTS                                            NAMES
 1b2855d329a1   0.0.0.0:38400->38400/tcp                         jitserver
 ```
 
-Each container should be set up for logging:
+>**NOTE**: If a container fails to start, the container and its log file will be deleted because the "`--rm`" flag is set when running the container. To view the logs of your failed container, remove this flag and re-run the appropriate run script.
+
+## 7. Verify JITServer is responding
+
+We can examine our logs to verify that our `jitserver` container is handling compile requests from our `acmeair-jitserver` container:
 
 ```bash
 $ docker logs jitserver
 #JITServer: JITServer version: 1.34.0
 #JITServer: JITServer Server Mode. Port: 38400. Connection Timeout 30000ms
-#JITServer: Started JITServer listener thread: 0000000002379400
+#JITServer: Started JITServer listener thread: 00000000017E7400
 
 JITServer is ready to accept incoming requests
+#JITServer: Server received request for stream 00007F36D0285B40
+#JITServer: t= 13733 A new client (clientUID=9265077818891624809) connected. Server allocated a new client session.
+#JITServer: compThreadID=0 created clientSessionData=00007F3640F70010 for clientUID=9265077818891624809 seqNo=1 (isCritical=1) (criticalSeqNo=0 lastProcessedCriticalReq=0)
+#JITServer: compThreadID=0 will ask for address ranges of unloaded classes and CHTable for clientUID 9265077818891624809
+#JITServer: compThreadID=0 will initialize CHTable for clientUID 9265077818891624809 size=7960
+#JITServer: compThreadID=0 has successfully compiled java/lang/Double.longBitsToDouble(J)D memoryState=2
+#JITServer: compThreadID=0 found clientSessionData=00007F3640F70010 for clientUID=9265077818891624809 seqNo=2 (isCritical=1) (criticalSeqNo=1 lastProcessedCriticalReq=1)
 ```
 
->**NOTE**: If a container fails to start, the container and its log file will be deleted because the "`--rm`" flag is set when running the container. To view the logs of your failed container, remove this flag and re-run the appropriate run script.
+```bash
+$ docker logs acmeair-jitserver
+#JITServer: JITServer version: 1.34.0
+#JITServer: JITServer Client Mode. Server address: jitserver port: 38400. Connection Timeout 10000ms
+#JITServer: Identifier for current client JVM: 9265077818891624809
 
-## 7. Verify Acme Air web app is running
+#INFO:  StartTime: Mar 29 12:28:08 2022
+#INFO:  Free Physical Memory: 239 MB
+#INFO:  CPU entitlement = 400.00
+#JITServer: Client sending compReq seqNo=1 to server for method java/lang/Double.longBitsToDouble(J)D @ cold.
+#JITServer: t=     0 Connected to a server (serverUID=9873666039581424421)
+#JITServer: Client successfully loaded method java/lang/Double.longBitsToDouble(J)D @ cold following compilation request. [metaData=00007F9069AC4338, startPC=00007F908A5B253C]
+#JITServer: Client sending compReq seqNo=2 to server for method jdk/internal/reflect/Reflection.getCallerClass()Ljava/lang/Class; @ cold.
+#JITServer: Client successfully loaded method jdk/internal/reflect/Reflection.getCallerClass()Ljava/lang/Class; @ cold following compilation request. [metaData=00007F9069AC95B8, startPC=00007F908A5BA21C]
+#JITServer: Client sending compReq seqNo=3 to server for method java/lang/System.getSysPropBeforePropertiesInitialized(I)Ljava/lang/String; @ cold.
+```
+
+## 8. Verify Acme Air web app is running
 
 Once your containers are running, you should be able to access the Acme Air web page using the URL `http://<host-ip>:9092/acmeair-webapp/`. Port `9092` will point to the `acmeair` container, and port `9093` will point to the `acmeair-jitserver` container.
 
@@ -285,7 +310,7 @@ Once your containers are running, you should be able to access the Acme Air web 
 
 >**NOTE**: The route name `acmeair-webapp` is defined in the server.xml file found in the `/LibertyContext/LibertyFiles` directory.
 
-## 8. Configure Prometheus
+## 9. Configure Prometheus
 
 Now that all the containers are running, we need to configure Prometheus to monitor our containers - referred to as `targets`.
 
@@ -329,7 +354,7 @@ On the `Targets` panel, you should see both of the `Acme Air` containers listed.
 
 ![prometheus-targets](doc/source/images/prometheus-targets.png)
 
-## 9. Run JMeter to add load to containers
+## 10. Run JMeter to add load to containers
 
 The last piece of the puzzle is running the JMeter container to simulate load on the AcmeAir containers. It does this by flooding the AcmeAir applications with HTTP requests.
 
@@ -347,16 +372,29 @@ Both will use 2 threads and run for 2 minutes. One will send requests to port `9
 
 When running the JMeter containers, it is best to run them simultaneously by starting each in a separate terminal window.
 
-## 10. Capture metrics in Prometheus
+## 11. Capture metrics in Prometheus
 
 Now return to the Prometheus UI and see what the metrics show.
 
-Using the metric `process_virtual_memory_bytes`, we can see that the container that used the JITServer used less memory, and did not suffer the wild spikes shown for the container that does not have access to the JITServer.
+Using the metric `process_virtual_memory_bytes`, we can see that the container that used the JITServer used less memory, and did not suffer the wild spikes shown for the non-JITServer container:
 
 ![prometheus-memory](doc/source/images/prometheus-memory.png)
 
-Here we use the metric `rate(process_cpu_seconds_total[1m])` to show CPU utilization.
-
-<TODO THIS IS A BAD GRAPH>
+Here we use the metric `rate(process_cpu_seconds_total[1m])` to show CPU utilization. Here we see that the Acme Air container using the JITServer utilized less CPU:
 
 ![prometheus-cpu](doc/source/images/prometheus-cpu.png)
+
+## Summary
+
+In this tutorial, we stepped through the process of setting up an experiment to determine what effects using the Eclipse OpenJ9 JITServer has on container resources.
+
+The experiment consisted of the following components:
+
+* Prometheus to graph metric data
+* JMX Exporter to push application metrics to Prometheus
+* Docker for building our images and containers
+* JMeter to simulate network load
+* The Acme Air benchmark web application to test against
+* Eclipse OpenJ9 JITServer to operate as a remote JIT compiler
+
+In the end, using the Prometheus monitoring tool we were able to conclude that a web application using the JITServer utilized less container resources than the same application using a standard JVM JIT compiler.
